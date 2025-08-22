@@ -7,7 +7,7 @@
     <script src="https://cdn.tailwindcss.com"></script>
   </head>
   <body class="bg-gray-50">
-    <div id="root"></div>
+    <div id="root" class="p-6 text-gray-600">App 載入中…</div>
     <noscript>本頁需要啟用 JavaScript 才能使用。</noscript>
 
     <!-- 必要函式庫（CDN） -->
@@ -18,70 +18,68 @@
     <script src="https://cdn.jsdelivr.net/npm/file-saver@2.0.5/dist/FileSaver.min.js"></script>
 
     <script type="text/babel" data-presets="env,react">
+      // 兼容性：避免使用 ?. 和 ??，僅用傳統寫法
       const { useState, useEffect, useMemo, useRef } = React;
-      const PapaLib = window.Papa;
+      const PapaLib = window.Papa || {};
       const FileSaver = window.FileSaver || { saveAs: window.saveAs };
 
       // ==== 工具 ====
       const LS_KEY = "hf-beginner-exam-app-v1";
       const serialize = (data) => JSON.stringify(data);
-      const deserialize = (s) => (s ? JSON.parse(s) : null);
+      const deserialize = (s) => { try { return s ? JSON.parse(s) : null; } catch { return null; } };
       const deBOM = (s) => (typeof s === "string" ? s.replace(/^\\uFEFF/, "") : s);
       const normalizeKeys = (raw) => {
         const out = {};
-        Object.entries(raw || {}).forEach(([k, v]) => {
+        if (!raw) return out;
+        Object.keys(raw).forEach((k) => {
           const nk = deBOM(String(k)).trim();
-          out[nk] = v;
+          out[nk] = raw[k];
         });
         return out;
       };
       const pick = (obj, keys) => {
-        for (const k of keys) {
+        obj = obj || {};
+        for (var i = 0; i < keys.length; i++) {
+          var k = keys[i];
           if (obj[k] != null && obj[k] !== "") return obj[k];
         }
         return undefined;
       };
       const shuffle = (arr) => {
-        const copy = [...arr];
-        for (let i = copy.length - 1; i > 0; i--) {
-          const j = Math.floor(Math.random() * (i + 1));
-          [copy[i], copy[j]] = [copy[j], copy[i]];
+        var copy = (arr || []).slice();
+        for (var i = copy.length - 1; i > 0; i--) {
+          var j = Math.floor(Math.random() * (i + 1));
+          var t = copy[i]; copy[i] = copy[j]; copy[j] = t;
         }
         return copy;
       };
       const fmtTime = (s) => {
-        const mm = Math.floor(s / 60).toString().padStart(2, "0");
-        const ss = Math.floor(s % 60).toString().padStart(2, "0");
-        return \`\${mm}:\${ss}\`;
+        s = Math.max(0, Number(s)||0);
+        var mm = Math.floor(s / 60).toString().padStart(2, "0");
+        var ss = Math.floor(s % 60).toString().padStart(2, "0");
+        return mm + ":" + ss;
       };
 
       // QA 轉換
       const rowToQA = (row) => {
         const r = normalizeKeys(row);
-        const year = (pick(r, ["year", "年度", "年份"]) ?? "").toString().trim();
-        const subject = (pick(r, ["subject", "科目"]) ?? "").toString().trim();
-        const question_no = (pick(r, ["question_no", "題號", "題目編號", "no", "id"]) ?? "").toString().trim();
-        const question = (pick(r, ["question", "題目", "stem"]) ?? "").toString().trim();
-        const option_A = (pick(r, ["option_A", "A", "選項A"]) ?? "").toString();
-        const option_B = (pick(r, ["option_B", "B", "選項B"]) ?? "").toString();
-        const option_C = (pick(r, ["option_C", "C", "選項C"]) ?? "").toString();
-        const option_D = (pick(r, ["option_D", "D", "選項D"]) ?? "").toString();
-        const correct_answers = (pick(r, ["correct_answers", "正確答案", "answer"]) ?? "").toString().replace(/\\s/g, "");
-        const notes = (pick(r, ["notes", "備註"]) ?? "").toString();
-        const date = (pick(r, ["date", "日期"]) ?? "").toString();
-        const session = (pick(r, ["session", "場次"]) ?? "").toString().trim();
+        const year = String(pick(r, ["year", "年度", "年份"]) || "").trim();
+        const subject = String(pick(r, ["subject", "科目"]) || "").trim();
+        const question_no = String(pick(r, ["question_no", "題號", "題目編號", "no", "id"]) || "").trim();
+        const question = String(pick(r, ["question", "題目", "stem"]) || "").trim();
+        const option_A = String(pick(r, ["option_A", "A", "選項A"]) || "");
+        const option_B = String(pick(r, ["option_B", "B", "選項B"]) || "");
+        const option_C = String(pick(r, ["option_C", "C", "選項C"]) || "");
+        const option_D = String(pick(r, ["option_D", "D", "選項D"]) || "");
+        const correct_answers = String(pick(r, ["correct_answers", "正確答案", "answer"]) || "").replace(/\\s/g, "");
+        const notes = String(pick(r, ["notes", "備註"]) || "");
+        const date = String(pick(r, ["date", "日期"]) || "");
+        const session = String(pick(r, ["session", "場次"]) || "").trim();
         const salt = (date || session || (question ? String(question).slice(0, 20).replace(/\\s+/g, "") : ""));
-        const id = \`\${year || ""}-\${salt}-\${subject || ""}-\${question_no || ""}\`;
+        const id = (year || "") + "-" + salt + "-" + (subject || "") + "-" + (question_no || "");
         const opts = ["A", "B", "C", "D"].map((k) => ({
           key: k,
-          text: (
-            pick(
-              { option_A, option_B, option_C, option_D },
-              [k === "A" ? "option_A" : k === "B" ? "option_B" : k === "C" ? "option_C" : "option_D"]
-            ) || ""
-          )
-            .toString()
-            .trim(),
+          text: String({A:option_A,B:option_B,C:option_C,D:option_D}[k] || "").trim(),
         }));
         return { id, year, date, subject, question_no, question, option_A, option_B, option_C, option_D, options: opts, correct_answers, notes };
       };
@@ -97,7 +95,8 @@
       };
 
       const exportCSV = (rows, filename = "export.csv") => {
-        const csv = PapaLib.unparse(rows);
+        if (!PapaLib || typeof PapaLib.unparse !== "function") { alert("Papaparse 尚未載入，無法匯出 CSV"); return; }
+        const csv = PapaLib.unparse(rows || []);
         const blob = new Blob(["\\uFEFF" + csv], { type: "text/csv;charset=utf-8;" });
         safeSaveAs(blob, filename);
       };
@@ -107,7 +106,7 @@
           if (!u) return "";
           if (/^gh:/i.test(u)) {
             const m = u.replace(/^gh:/i, "").match(/^([^\\/]+)\\/([^@]+)@([^:]+):(.+)$/);
-            if (m) { const [, user, repo, branch, path] = m; return \`https://raw.githubusercontent.com/\${user}/\${repo}/\${branch}/\${path}\`; }
+            if (m) { var user=m[1], repo=m[2], branch=m[3], path=m[4]; return "https://raw.githubusercontent.com/"+user+"/"+repo+"/"+branch+"/"+path; }
             return u;
           }
           if (/^https?:\\/\\/github\\.com\\/.+\\/blob\\//.test(u)) {
@@ -131,8 +130,8 @@
         const timerRef = useRef(null);
         const [bankUrl, setBankUrl] = useState("gh:yokuhei-ping/Health-Food-Engineer-Entry@b18caf88dce70271f4e51f25c0931fa0efbbed39:Question_All_corrected.csv");
 
-        useEffect(() => {
-          const saved = deserialize(localStorage.getItem(LS_KEY));
+        useEffect(function() {
+          const saved = deserialize((function(){try{return localStorage.getItem(LS_KEY);}catch(e){return null;}})());
           if (saved) {
             setBank(saved.bank || []);
             setSubject(saved.subject || "全部科目");
@@ -141,119 +140,120 @@
           }
         }, []);
 
-        useEffect(() => {
-          localStorage.setItem(LS_KEY, serialize({ bank, subject, year, mode }));
+        useEffect(function() {
+          try { localStorage.setItem(LS_KEY, serialize({ bank:bank, subject:subject, year:year, mode:mode })); } catch (e) {}
         }, [bank, subject, year, mode]);
 
-        const subjects = useMemo(() => {
-          const set = new Set(bank.map((q) => (q.subject || "").toString().trim()));
-          return ["全部科目", ...Array.from(set).filter(Boolean)];
+        const subjects = useMemo(function() {
+          const set = new Set((bank||[]).map(function(q){ return String((q.subject||"")).trim(); }));
+          return ["全部科目"].concat(Array.from(set).filter(Boolean));
         }, [bank]);
 
-        const years = useMemo(() => {
-          const set = new Set(bank.map((q) => (q.year ?? "").toString().trim()));
-          const arr = Array.from(set).filter(Boolean).sort((a, b) => Number(b) - Number(a));
-          return ["全部年度", ...arr];
+        const years = useMemo(function() {
+          const set = new Set((bank||[]).map(function(q){ return String((q.year==null?"":q.year)).trim(); }));
+          const arr = Array.from(set).filter(Boolean).sort(function(a,b){ return Number(b)-Number(a); });
+          return ["全部年度"].concat(arr);
         }, [bank]);
 
-        const filtered = useMemo(() => {
-          return bank.filter((q) => {
-            const okS = subject === "全部科目" || (q.subject || "").toString().trim() === subject;
-            const okY = year === "全部年度" || (q.year ?? "").toString().trim() === year;
+        const filtered = useMemo(function() {
+          return (bank||[]).filter(function(q){
+            const okS = subject === "全部科目" || String(q.subject||"").trim() === subject;
+            const okY = year === "全部年度" || String(q.year==null?"":q.year).trim() === year;
             return okS && okY;
           });
         }, [bank, subject, year]);
 
-        const paper = useMemo(() => {
+        const paper = useMemo(function() {
           const base = shuffle(filtered.slice());
-          return base.slice(0, Math.min(limit, base.length)).map((q, i) => ({ ...q, order: i + 1 }));
+          const n = Math.min(limit, base.length);
+          return base.slice(0, n).map(function(q, i){ return Object.assign({}, q, { order: i+1 }); });
         }, [filtered, limit, seed]);
 
-        useEffect(() => {
+        useEffect(function() {
           if (!started || mode !== "exam") return;
-          timerRef.current = window.setInterval(() => setSeconds((s) => s + 1), 1000);
-          return () => { if (timerRef.current) window.clearInterval(timerRef.current); };
+          timerRef.current = window.setInterval(function(){ setSeconds(function(s){ return s+1; }); }, 1000);
+          return function(){ if (timerRef.current) window.clearInterval(timerRef.current); };
         }, [started, mode]);
 
-        const start = () => { setAnswers({}); setPage(0); setSeed((s) => s + 1); setSeconds(0); setStarted(true); };
-        const stop = () => { setStarted(false); if (timerRef.current) window.clearInterval(timerRef.current); };
+        const start = function(){ setAnswers({}); setPage(0); setSeed(function(s){return s+1;}); setSeconds(0); setStarted(true); };
+        const stop = function(){ setStarted(false); if (timerRef.current) window.clearInterval(timerRef.current); };
 
-        const current = paper[page];
-        const choose = (qid, key) => setAnswers((prev) => ({ ...prev, [qid]: key }));
-        const isCorrect = (q, user) => {
-          const ok = (q.correct_answers || "").split(",").map((x) => x.trim()).filter(Boolean);
-          return user ? ok.includes(user) : false;
+        const current = paper[page] || null;
+        const choose = function(qid, key){ setAnswers(function(prev){ var next = Object.assign({}, prev); next[qid]=key; return next; }); };
+        const isCorrect = function(q, user){
+          const ok = String(q.correct_answers||"").split(",").map(function(x){return x.trim();}).filter(Boolean);
+          return user ? ok.indexOf(user) >= 0 : false;
         };
 
-        const score = useMemo(() => {
-          let right = 0; paper.forEach((q) => { if (isCorrect(q, answers[q.id])) right += 1; });
-          return { right, total: paper.length };
+        const score = useMemo(function(){
+          var right = 0; paper.forEach(function(q){ if (isCorrect(q, answers[q.id])) right += 1; });
+          return { right: right, total: paper.length };
         }, [paper, answers]);
 
-        const wrongList = useMemo(() => paper.filter((q) => !isCorrect(q, answers[q.id])), [paper, answers]);
+        const wrongList = useMemo(function(){ return paper.filter(function(q){ return !isCorrect(q, answers[q.id]); }); }, [paper, answers]);
 
-        const onImport = (file) => {
+        const onImport = function(file){
           if (!file) { alert("尚未選擇題庫檔案"); return; }
-          const name = (file.name || "").toLowerCase();
-          if (name.endsWith(".csv")) {
+          const name = String(file.name||"").toLowerCase();
+          if (name.slice(-4) === ".csv") {
             PapaLib.parse(file, {
               header: true,
               skipEmptyLines: true,
-              complete: (res) => {
-                let ok = 0, skipped = 0;
-                const rows = (res.data || []).map((raw) => {
+              complete: function(res){
+                var ok = 0, skipped = 0;
+                const rows = (res.data || []).map(function(raw){
                   const base = normalizeKeys(raw);
-                  const r = { ...base };
-                  r.year = r.year ?? r["年度"] ?? r["年份"] ?? r["\\ufeffyear"];
-                  r.subject = r.subject ?? r["科目"];
-                  r.question_no = r.question_no ?? r["題號"] ?? r["題目編號"] ?? r["no"] ?? r["\\ufeffquestion_no"];
-                  r.question = r.question ?? r["題目"] ?? r["stem"];
-                  r.option_A = r.option_A ?? r["A"] ?? r["選項A"];
-                  r.option_B = r.option_B ?? r["B"] ?? r["選項B"];
-                  r.option_C = r.option_C ?? r["C"] ?? r["選項C"];
-                  r.option_D = r.option_D ?? r["D"] ?? r["選項D"];
-                  r.correct_answers = r.correct_answers ?? r["正確答案"] ?? r["answer"];
-                  r.notes = r.notes ?? r["備註"];
-                  r.date = r.date ?? r["日期"]; r.session = r.session ?? r["場次"] ?? r["session"];
+                  const r = Object.assign({}, base);
+                  r.year = r.year || r["年度"] || r["年份"] || r["\\ufeffyear"];
+                  r.subject = r.subject || r["科目"];
+                  r.question_no = r.question_no || r["題號"] || r["題目編號"] || r["no"] || r["\\ufeffquestion_no"];
+                  r.question = r.question || r["題目"] || r["stem"];
+                  r.option_A = r.option_A || r["A"] || r["選項A"];
+                  r.option_B = r.option_B || r["B"] || r["選項B"];
+                  r.option_C = r.option_C || r["C"] || r["選項C"];
+                  r.option_D = r.option_D || r["D"] || r["選項D"];
+                  r.correct_answers = r.correct_answers || r["正確答案"] || r["answer"];
+                  r.notes = r.notes || r["備註"];
+                  r.date = r.date || r["日期"]; r.session = r.session || r["場次"] || r["session"];
                   const qa = rowToQA(r);
                   if (!qa.year || !qa.subject || !qa.question_no) { skipped += 1; return null; }
                   ok += 1; return qa;
                 }).filter(Boolean);
                 const dup = countDup(bank, rows);
-                setBank((prev) => mergeBank(prev, rows));
-                alert(\`已匯入 \${ok} 題\${skipped ? \`，略過 \${skipped} 題（缺少 年度/科目/題號）\` : ""}；其中 \${dup} 題與既有題目（相同 年度/日期(或場次)/科目/題號）重複，已自動合併\`);
+                setBank(function(prev){ return mergeBank(prev, rows); });
+                alert("已匯入 " + ok + " 題" + (skipped ? "，略過 " + skipped + " 題（缺少 年度/科目/題號）" : "") + "；其中 " + dup + " 題與既有題目（相同 年度/日期(或場次)/科目/題號）重複，已自動合併");
               },
             });
             return;
           }
-          if (name.endsWith(".json")) {
+          if (name.slice(-5) === ".json") {
             const reader = new FileReader();
-            reader.onload = () => {
-              try {
-                const json = JSON.parse(reader.result);
-                const arr = Array.isArray(json) ? json : json.items || [];
-                let ok = 0, skipped = 0;
-                const rows = arr.map((raw) => {
+            reader.onload = function(){
+              try{
+                const json = JSON.parse(String(reader.result||""));
+                const arr = Array.isArray(json) ? json : (json.items || []);
+                var ok = 0, skipped = 0;
+                const rows = arr.map(function(raw){
                   const base = normalizeKeys(raw);
-                  const r = { ...base };
-                  r.year = r.year ?? r["年度"] ?? r["年份"];
-                  r.subject = r.subject ?? r["科目"];
-                  r.question_no = r.question_no ?? r["題號"] ?? r["題目編號"] ?? r["no"];
-                  r.question = r.question ?? r["題目"] ?? r["stem"];
-                  r.option_A = r.option_A ?? r["A"] ?? r["選項A"];
-                  r.option_B = r.option_B ?? r["B"] ?? r["選項B"];
-                  r.option_C = r.option_C ?? r["C"] ?? r["選項C"];
-                  r.option_D = r.option_D ?? r["D"] ?? r["選項D"];
-                  r.correct_answers = r.correct_answers ?? r["正確答案"] ?? r["answer"];
-                  r.notes = r.notes ?? r["備註"];
-                  r.date = r.date ?? r["日期"];
+                  const r = Object.assign({}, base);
+                  r.year = r.year || r["年度"] || r["年份"];
+                  r.subject = r.subject || r["科目"];
+                  r.question_no = r.question_no || r["題號"] || r["題目編號"] || r["no"];
+                  r.question = r.question || r["題目"] || r["stem"];
+                  r.option_A = r.option_A || r["A"] || r["選項A"];
+                  r.option_B = r.option_B || r["B"] || r["選項B"];
+                  r.option_C = r.option_C || r["C"] || r["選項C"];
+                  r.option_D = r.option_D || r["D"] || r["選項D"];
+                  r.correct_answers = r.correct_answers || r["正確答案"] || r["answer"];
+                  r.notes = r.notes || r["備註"];
+                  r.date = r.date || r["日期"];
                   const qa = rowToQA(r);
                   if (!qa.year || !qa.subject || !qa.question_no) { skipped += 1; return null; }
                   ok += 1; return qa;
                 }).filter(Boolean);
                 const dup = countDup(bank, rows);
-                setBank((prev) => mergeBank(prev, rows));
-                alert(\`已匯入 \${ok} 題\${skipped ? \`，略過 \${skipped} 題（缺少 年度/科目/題號）\` : ""}；其中 \${dup} 題與既有題目（相同 年度/日期(或場次)/科目/題號）重複，已自動合併\`);
+                setBank(function(prev){ return mergeBank(prev, rows); });
+                alert("已匯入 " + ok + " 題" + (skipped ? "，略過 " + skipped + " 題（缺少 年度/科目/題號）" : "") + "；其中 " + dup + " 題與既有題目（相同 年度/日期(或場次)/科目/題號）重複，已自動合併");
               } catch { alert("JSON 解析失敗"); }
             };
             reader.readAsText(file, "utf-8");
@@ -262,110 +262,114 @@
           alert("請上傳 CSV 或 JSON 檔");
         };
 
-        const onImportUrl = (url) => {
-          const u = toRawUrl(url.trim());
+        const onImportUrl = function(url){
+          const u = toRawUrl(String(url||"").trim());
           if (!u) { alert("請輸入題庫網址"); return; }
           if (/\\.csv(?:$|\\?)/i.test(u)) {
             PapaLib.parse(u, {
               download: true,
               header: true,
               skipEmptyLines: true,
-              complete: (res) => {
-                let ok = 0, skipped = 0;
-                const rows = (res.data || []).map((raw) => {
+              complete: function(res){
+                var ok = 0, skipped = 0;
+                const rows = (res.data || []).map(function(raw){
                   const base = normalizeKeys(raw);
-                  const r = { ...base };
-                  r.year = r.year ?? r["年度"] ?? r["年份"] ?? r["﻿year"];
-                  r.subject = r.subject ?? r["科目"];
-                  r.question_no = r.question_no ?? r["題號"] ?? r["題目編號"] ?? r["no"] ?? r["﻿question_no"];
-                  r.question = r.question ?? r["題目"] ?? r["stem"];
-                  r.option_A = r.option_A ?? r["A"] ?? r["選項A"];
-                  r.option_B = r.option_B ?? r["B"] ?? r["選項B"];
-                  r.option_C = r.option_C ?? r["C"] ?? r["選項C"];
-                  r.option_D = r.option_D ?? r["D"] ?? r["選項D"];
-                  r.correct_answers = r.correct_answers ?? r["正確答案"] ?? r["answer"];
-                  r.notes = r.notes ?? r["備註"];
-                  r.date = r.date ?? r["日期"];
-                  r.session = r.session ?? r["場次"] ?? r["session"];
+                  const r = Object.assign({}, base);
+                  r.year = r.year || r["年度"] || r["年份"] || r["﻿year"];
+                  r.subject = r.subject || r["科目"];
+                  r.question_no = r.question_no || r["題號"] || r["題目編號"] || r["no"] || r["﻿question_no"];
+                  r.question = r.question || r["題目"] || r["stem"];
+                  r.option_A = r.option_A || r["A"] || r["選項A"];
+                  r.option_B = r.option_B || r["B"] || r["選項B"];
+                  r.option_C = r.option_C || r["C"] || r["選項C"];
+                  r.option_D = r.option_D || r["D"] || r["選項D"];
+                  r.correct_answers = r.correct_answers || r["正確答案"] || r["answer"];
+                  r.notes = r.notes || r["備註"];
+                  r.date = r.date || r["日期"];
+                  r.session = r.session || r["場次"] || r["session"];
                   const qa = rowToQA(r);
                   if (!qa.year || !qa.subject || !qa.question_no) { skipped += 1; return null; }
                   ok += 1; return qa;
                 }).filter(Boolean);
                 const dup = countDup(bank, rows);
-                setBank((prev) => mergeBank(prev, rows));
-                alert(\`已從網址匯入 \${ok} 題\${skipped ? \`，略過 \${skipped} 題（缺少 年度/科目/題號）\` : ""}；其中 \${dup} 題與既有題目重複，已自動合併\`);
+                setBank(function(prev){ return mergeBank(prev, rows); });
+                alert("已從網址匯入 " + ok + " 題" + (skipped ? "，略過 " + skipped + " 題（缺少 年度/科目/題號）" : "") + "；其中 " + dup + " 題與既有題目重複，已自動合併");
               },
-              error: () => alert("下載 CSV 失敗，請確認網址可公開存取"),
+              error: function(){ alert("下載 CSV 失敗，請確認網址可公開存取"); },
             });
           } else if (/\\.json(?:$|\\?)/i.test(u)) {
             fetch(u, { cache: "no-store" })
-              .then((r) => { if (!r.ok) throw new Error("HTTP " + r.status); return r.json(); })
-              .then((json) => {
-                const arr = Array.isArray(json) ? json : json.items || [];
-                let ok = 0, skipped = 0;
-                const rows = arr.map((raw) => {
+              .then(function(r){ if (!r.ok) throw new Error("HTTP " + r.status); return r.json(); })
+              .then(function(json){
+                const arr = Array.isArray(json) ? json : (json.items || []);
+                var ok = 0, skipped = 0;
+                const rows = arr.map(function(raw){
                   const base = normalizeKeys(raw);
-                  const r = { ...base };
-                  r.year = r.year ?? r["年度"] ?? r["年份"];
-                  r.subject = r.subject ?? r["科目"];
-                  r.question_no = r.question_no ?? r["題號"] ?? r["題目編號"] ?? r["no"];
-                  r.question = r.question ?? r["題目"] ?? r["stem"];
-                  r.option_A = r.option_A ?? r["A"] ?? r["選項A"];
-                  r.option_B = r.option_B ?? r["B"] ?? r["選項B"];
-                  r.option_C = r.option_C ?? r["C"] ?? r["選項C"];
-                  r.option_D = r.option_D ?? r["D"] ?? r["選項D"];
-                  r.correct_answers = r.correct_answers ?? r["正確答案"] ?? r["answer"];
-                  r.notes = r.notes ?? r["備註"];
-                  r.date = r.date ?? r["日期"];
-                  r.session = r.session ?? r["場次"] ?? r["session"];
+                  const r = Object.assign({}, base);
+                  r.year = r.year || r["年度"] || r["年份"];
+                  r.subject = r.subject || r["科目"];
+                  r.question_no = r.question_no || r["題號"] || r["題目編號"] || r["no"];
+                  r.question = r.question || r["題目"] || r["stem"];
+                  r.option_A = r.option_A || r["A"] || r["選項A"];
+                  r.option_B = r.option_B || r["B"] || r["選項B"];
+                  r.option_C = r.option_C || r["C"] || r["選項C"];
+                  r.option_D = r.option_D || r["D"] || r["選項D"];
+                  r.correct_answers = r.correct_answers || r["正確答案"] || r["answer"];
+                  r.notes = r.notes || r["備註"];
+                  r.date = r.date || r["日期"];
+                  r.session = r.session || r["場次"] || r["session"];
                   const qa = rowToQA(r);
                   if (!qa.year || !qa.subject || !qa.question_no) { skipped += 1; return null; }
                   ok += 1; return qa;
                 }).filter(Boolean);
                 const dup = countDup(bank, rows);
-                setBank((prev) => mergeBank(prev, rows));
-                alert(\`已從網址匯入 \${ok} 題\${skipped ? \`，略過 \${skipped} 題（缺少 年度/科目/題號）\` : ""}；其中 \${dup} 題與既有題目重複，已自動合併\`);
+                setBank(function(prev){ return mergeBank(prev, rows); });
+                alert("已從網址匯入 " + ok + " 題" + (skipped ? "，略過 " + skipped + " 題（缺少 年度/科目/題號）" : "") + "；其中 " + dup + " 題與既有題目重複，已自動合併");
               })
-              .catch(() => alert("下載 JSON 失敗，請確認網址可公開存取"));
+              .catch(function(){ alert("下載 JSON 失敗，請確認網址可公開存取"); });
           } else {
             alert("請提供 .csv 或 .json 連結（建議使用 GitHub 的 Raw 連結或 gh: 別名）");
           }
         };
 
-        const handleImportChange = (e) => {
-          const file = e.target.files?.[0] ?? null;
+        const handleImportChange = function(e){
+          const files = (e && e.target && e.target.files) ? e.target.files : null;
+          const file = files && files[0] ? files[0] : null;
           if (!file) { alert("尚未選擇題庫檔案"); return; }
           onImport(file);
-          e.target.value = "";
+          try { e.target.value = ""; } catch {}
         };
 
-        const mergeBank = (prev, rows) => {
-          const map = new Map(prev.map((q) => [q.id, q]));
-          for (const r of rows) map.set(r.id, r);
+        const mergeBank = function(prev, rows){
+          const map = new Map((prev||[]).map(function(q){ return [q.id, q]; }));
+          (rows||[]).forEach(function(r){ map.set(r.id, r); });
           return Array.from(map.values());
         };
 
-        const countDup = (prev, rows) => {
-          const set = new Set(prev.map((q) => q.id));
-          let dup = 0; for (const r of rows) if (set.has(r.id)) dup += 1;
+        const countDup = function(prev, rows){
+          const set = new Set((prev||[]).map(function(q){ return q.id; }));
+          var dup = 0; (rows||[]).forEach(function(r){ if (set.has(r.id)) dup += 1; });
           return dup;
         };
 
-        const exportWrong = () => {
+        const exportWrong = function(){
           if (!wrongList.length) { alert("目前沒有可匯出的錯題（請先開始作答並產生錯題）"); return; }
-          const rows = wrongList.map((q) => ({
-            year: q.year, subject: q.subject, question_no: q.question_no, question: q.question,
-            option_A: q.option_A, option_B: q.option_B, option_C: q.option_C, option_D: q.option_D,
-            correct_answers: q.correct_answers, notes: q.notes,
-          }));
-          try { exportCSV(rows, "錯題本.csv"); alert(\`已匯出 \${rows.length} 題錯題至「錯題本.csv」\`); }
+          const rows = wrongList.map(function(q){
+            return {
+              year: q.year, subject: q.subject, question_no: q.question_no, question: q.question,
+              option_A: q.option_A, option_B: q.option_B, option_C: q.option_C, option_D: q.option_D,
+              correct_answers: q.correct_answers, notes: q.notes,
+            };
+          });
+          try { exportCSV(rows, "錯題本.csv"); alert("已匯出 " + rows.length + " 題錯題至「錯題本.csv」"); }
           catch (e) { console.error(e); alert("下載失敗，請檢查瀏覽器下載權限"); }
         };
 
-        const clearBank = () => {
-          const ok = typeof window !== "undefined" && typeof window.confirm === "function" ? window.confirm("確定要清空目前題庫嗎？（將同時刪除本地快取）") : true;
+        const clearBank = function(){
+          var ok = true;
+          try { ok = window.confirm("確定要清空目前題庫嗎？（將同時刪除本地快取）"); } catch(e){}
           if (!ok) return;
-          setBank([]); setAnswers({}); setStarted(false); setPage(0); setSeed((s) => s + 1);
+          setBank([]); setAnswers({}); setStarted(false); setPage(0); setSeed(function(s){return s+1;});
           try { localStorage.removeItem(LS_KEY); } catch (e) { console.warn("無法存取 localStorage：", e); }
           alert("題庫與快取已清空");
         };
@@ -381,31 +385,31 @@
               <section className="bg-white rounded-2xl shadow p-4 grid gap-3">
                 <div className="flex flex-wrap items-center gap-3">
                   <label className="text-sm">科目</label>
-                  <select className="border rounded-xl px-3 py-2" value={subject} onChange={(e) => setSubject(e.target.value)}>
-                    {subjects.map((s) => (<option key={s} value={s}>{s}</option>))}
+                  <select className="border rounded-xl px-3 py-2" value={subject} onChange={function(e){ setSubject(e.target.value); }}>
+                    {subjects.map(function(s){ return (<option key={s} value={s}>{s}</option>); })}
                   </select>
 
                   <label className="text-sm ml-2">年度</label>
-                  <select className="border rounded-xl px-3 py-2" value={year} onChange={(e) => setYear(e.target.value)}>
-                    {years.map((y) => (<option key={y} value={y}>{y}</option>))}
+                  <select className="border rounded-xl px-3 py-2" value={year} onChange={function(e){ setYear(e.target.value); }}>
+                    {years.map(function(y){ return (<option key={y} value={y}>{y}</option>); })}
                   </select>
 
                   <label className="text-sm ml-2">模式</label>
-                  <select className="border rounded-xl px-3 py-2" value={mode} onChange={(e) => setMode(e.target.value)}>
+                  <select className="border rounded-xl px-3 py-2" value={mode} onChange={function(e){ setMode(e.target.value); }}>
                     <option value="practice">練習（即時對答案）</option>
                     <option value="exam">模擬考（交卷後揭曉）</option>
                   </select>
 
                   <label className="text-sm ml-2">題數</label>
-                  <input className="border rounded-xl px-3 py-2 w-24" type="number" min={1} max={200} value={limit} onChange={(e) => setLimit(Number(e.target.value || 1))} />
+                  <input className="border rounded-xl px-3 py-2 w-24" type="number" min={1} max={200} value={limit} onChange={function(e){ setLimit(Number(e.target.value || 1)); }} />
 
                   <label className="text-sm ml-2">匯入題庫</label>
                   <input className="border rounded-xl px-3 py-2" type="file" accept=".csv,.json" onChange={handleImportChange} />
-                  <input className="border rounded-xl px-3 py-2 w-64" type="url" placeholder="貼上題庫 CSV/JSON 網址或 gh:別名" value={bankUrl} onChange={(e)=>setBankUrl(e.target.value)} />
-                  <button className="rounded-2xl px-4 py-2 border" onClick={()=>onImportUrl(bankUrl)}>從網址載入</button>
+                  <input className="border rounded-xl px-3 py-2 w-64" type="url" placeholder="貼上題庫 CSV/JSON 網址或 gh:別名" value={bankUrl} onChange={function(e){ setBankUrl(e.target.value); }} />
+                  <button className="rounded-2xl px-4 py-2 border" onClick={function(){ onImportUrl(bankUrl); }}>從網址載入</button>
 
                   <button className="ml-auto rounded-2xl px-4 py-2 bg-gray-900 text-white hover:opacity-90" onClick={start}>開始作答</button>
-                  {started && (<button className="rounded-2xl px-4 py-2 border" onClick={stop}>結束/交卷</button>)}
+                  {started ? (<button className="rounded-2xl px-4 py-2 border" onClick={stop}>結束/交卷</button>) : null}
                 </div>
                 <div className="flex gap-2 flex-wrap text-sm">
                   <button className="rounded-xl px-3 py-2 border" onClick={exportWrong}>匯出錯題本 CSV</button>
@@ -423,24 +427,24 @@
                     <div className="text-xs px-2 py-1 rounded-full bg-gray-100">{current.year || "—"} 年</div>
                     <div className="text-xs px-2 py-1 rounded-full bg-gray-100">題號：{current.question_no}</div>
                     <div className="text-xs px-2 py-1 rounded-full bg-gray-100">第 {page + 1} / {paper.length} 題</div>
-                    {mode === "exam" && <div className="text-xs px-2 py-1 rounded-full bg-gray-100">計時：{fmtTime(seconds)}</div>}
+                    {mode === "exam" ? (<div className="text-xs px-2 py-1 rounded-full bg-gray-100">計時：{fmtTime(seconds)}</div>) : null}
                   </div>
 
                   <h2 className="mt-3 text-lg font-semibold leading-relaxed whitespace-pre-wrap">{current.question}</h2>
 
                   <ul className="mt-4 grid gap-2">
-                    {current.options?.map((op) => {
+                    {current.options && current.options.map(function(op){
                       const picked = answers[current.id] === op.key;
                       const showAnswer = mode === "practice" && picked;
-                      const correctSet = (current.correct_answers || "").split(",").map((x) => x.trim());
-                      const isRight = correctSet.includes(op.key);
+                      const correctSet = String(current.correct_answers || "").split(",").map(function(x){ return x.trim(); });
+                      const isRight = correctSet.indexOf(op.key) >= 0;
                       const className = [
                         "w-full text-left border rounded-xl p-3 hover:bg-gray-50",
                         picked && showAnswer && (isRight ? "border-green-500 bg-green-50" : "border-red-400 bg-red-50"),
                       ].join(" ");
                       return (
                         <li key={op.key}>
-                          <button className={className} onClick={() => choose(current.id, op.key)}>
+                          <button className={className} onClick={function(){ choose(current.id, op.key); }}>
                             <span className="font-mono mr-2">({op.key})</span>
                             <span className="whitespace-pre-wrap">{op.text || "—"}</span>
                           </button>
@@ -460,14 +464,14 @@
                       ) : (
                         <div className="text-gray-500">請選擇一個選項作答</div>
                       )}
-                      {current.notes && <div className="mt-1 text-gray-600">備註：{current.notes}</div>}
+                      {current.notes ? (<div className="mt-1 text-gray-600">備註：{current.notes}</div>) : null}
                     </div>
                   )}
 
                   <div className="mt-5 flex gap-2">
-                    <button className="rounded-xl px-4 py-2 border" disabled={page === 0} onClick={() => setPage((p) => Math.max(0, p - 1))}>上一題</button>
-                    <button className="rounded-xl px-4 py-2 border" disabled={page >= paper.length - 1} onClick={() => setPage((p) => Math.min(paper.length - 1, p + 1))}>下一題</button>
-                    <button className="rounded-xl px-4 py-2 border ml-auto" onClick={() => setPage(0)}>回到第 1 題</button>
+                    <button className="rounded-xl px-4 py-2 border" disabled={page === 0} onClick={function(){ setPage(function(p){ return Math.max(0, p - 1); }); }}>上一題</button>
+                    <button className="rounded-xl px-4 py-2 border" disabled={page >= paper.length - 1} onClick={function(){ setPage(function(p){ return Math.min(paper.length - 1, p + 1); }); }}>下一題</button>
+                    <button className="rounded-xl px-4 py-2 border ml-auto" onClick={function(){ setPage(0); }}>回到第 1 題</button>
                   </div>
                 </section>
               )}
@@ -478,15 +482,15 @@
                   <div className="text-lg">目前統計：<span className="font-semibold">{score.right}</span> / {score.total} 題 正確</div>
                   <div className="flex gap-2 flex-wrap">
                     <button className="rounded-xl px-4 py-2 bg-gray-900 text-white" onClick={stop}>結束 / 交卷</button>
-                    <button className="rounded-xl px-4 py-2 border" onClick={() => setSeed((s) => s + 1)}>重抽題目</button>
+                    <button className="rounded-xl px-4 py-2 border" onClick={function(){ setSeed(function(s){ return s+1; }); }}>重抽題目</button>
                     <button className="rounded-xl px-4 py-2 border" onClick={exportWrong}>匯出錯題本 CSV</button>
                   </div>
-                  {!!wrongList.length && (<div className="text-sm text-gray-600">目前錯題：{wrongList.length} 題（可用上方按鈕匯出 CSV 當錯題本）</div>)}
+                  {wrongList.length ? (<div className="text-sm text-gray-600">目前錯題：{wrongList.length} 題（可用上方按鈕匯出 CSV 當錯題本）</div>) : null}
                 </section>
               )}
 
               {!bank.length && (
-                <section className="bg白 rounded-2xl shadow p-6">
+                <section className="bg-white rounded-2xl shadow p-6">
                   <h3 className="text-lg font-semibold mb-2">👋 先上傳或貼上題庫連結開始使用</h3>
                   <ol className="list-decimal pl-6 space-y-2 text-sm text-gray-700">
                     <li>點上方 <b>匯入題庫</b>，上傳 CSV 或 JSON（建議使用你產出的題庫檔）。</li>
@@ -502,8 +506,14 @@
         );
       }
 
-      const root = ReactDOM.createRoot(document.getElementById("root"));
-      root.render(<App />);
+      var rootEl = document.getElementById("root");
+      try {
+        const root = ReactDOM.createRoot(rootEl);
+        root.render(<App />);
+      } catch (e) {
+        console.error(e);
+        rootEl.innerHTML = "<div class='p-6 text-red-600'>應用載入失敗："+ String(e && e.message || e) +"</div>";
+      }
     </script>
   </body>
 </html>
