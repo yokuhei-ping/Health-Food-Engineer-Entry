@@ -143,7 +143,7 @@
         const [seconds, setSeconds] = useState(0);
         const timerRef = useRef(null);
         const [corrections, setCorrections] = useState([]);
-        const [bankUrl, setBankUrl] = useState("gh:PingYangtw/Health-Food-Engineer-Entry@main:Question_All%20(1).csv");
+        const [bankUrl, setBankUrl] = useState("gh:yokuhei-ping/Health-Food-Engineer-Entry@b18caf88dce70271f4e51f25c0931fa0efbbed39:Question_All_corrected.csv");
         const [corrUrl, setCorrUrl] = useState("https://github.com/PingYangtw/Health-Food-Engineer-Entry/blob/2e123d2ca94719de803cd8766b22256a37630c58/exam_corrections_all_years.csv");
 
         const runSelfTests = () => {
@@ -466,7 +466,7 @@
 
         // 一鍵：載入 GitHub 題庫 + 更正表，並自動套用更正
         const loadGithubDefaults = () => {
-          const defaultBank = bankUrl || "gh:PingYangtw/Health-Food-Engineer-Entry@main:Question_All%20(1).csv";
+          const defaultBank = bankUrl || "gh:yokuhei-ping/Health-Food-Engineer-Entry@b18caf88dce70271f4e51f25c0931fa0efbbed39:Question_All_corrected.csv";
           const defaultCorr = corrUrl || "https://github.com/PingYangtw/Health-Food-Engineer-Entry/blob/2e123d2ca94719de803cd8766b22256a37630c58/exam_corrections_all_years.csv";
           onImportUrl(defaultBank);
           onImportCorrectionsUrl(defaultCorr);
