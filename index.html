@@ -74,7 +74,7 @@
         const correct_answers = (pick(r, ["correct_answers", "正確答案", "answer"]) ?? "").toString().replace(/\s/g, "");
         const notes = (pick(r, ["notes", "備註"]) ?? "").toString();
         const date = (pick(r, ["date", "日期"]) ?? "").toString();
-        const session = (pick(r, ["session", "場次"]) ?? "").toString().trim();
+        const session = (pick(r, ["session", "場次", "_場次"]) ?? "").toString().trim();
         // 讓不同場次/日期的同年同科目同題號不會被當成重複題而合併
         const salt = (date || session || (question ? String(question).slice(0, 20).replace(/\s+/g, "") : ""));
         const id = `${year || ""}-${salt}-${subject || ""}-${question_no || ""}`;
@@ -89,7 +89,7 @@
             .toString()
             .trim(),
         }));
-        return { id, year, date, subject, question_no, question, option_A, option_B, option_C, option_D, options: opts, correct_answers, notes };
+        return { id, year, date, session, subject, question_no, question, option_A, option_B, option_C, option_D, options: opts, correct_answers, notes };
       };
 
       const safeSaveAs = (blob, filename) => {
@@ -116,15 +116,22 @@
       ];
 
       const applyCorrectionsToBank = (bank, corrections) => {
-        const idx = new Map();
+        const exactIdx = new Map();
+        const genericIdx = new Map();
         for (const c of corrections || []) {
           if (!c || !c.年度 || !c.科目 || !Number.isFinite(Number(c.題號))) continue;
-          const key = `${String(c.年度)}-${c.科目}-${Number(c.題號)}`;
-          idx.set(key, (c.正確答案 || "").replace(/\s/g, ""));
+          const answer = (c.正確答案 || "").replace(/\s/g, "");
+          const session = String(c.場次 || "").trim();
+          const genericKey = `${String(c.年度)}-${c.科目}-${Number(c.題號)}`;
+          if (session) exactIdx.set(`${genericKey}-${session}`, answer);
+          else genericIdx.set(genericKey, answer);
         }
         return bank.map((q) => {
-          const key = `${q.year || ""}-${q.subject || ""}-${q.question_no || ""}`;
-          return idx.has(key) ? { ...q, correct_answers: idx.get(key) } : q;
+          const genericKey = `${q.year || ""}-${q.subject || ""}-${q.question_no || ""}`;
+          const exactKey = `${genericKey}-${String(q.session || "").trim()}`;
+          if (exactIdx.has(exactKey)) return { ...q, correct_answers: exactIdx.get(exactKey) };
+          if (genericIdx.has(genericKey)) return { ...q, correct_answers: genericIdx.get(genericKey) };
+          return q;
         });
       };
 
@@ -143,8 +150,83 @@
         const [seconds, setSeconds] = useState(0);
         const timerRef = useRef(null);
         const [corrections, setCorrections] = useState([]);
-        const [bankUrl, setBankUrl] = useState("https://github.com/yokuhei-ping/Health-Food-Engineer-Entry/blob/a78fb8a07dae9892724fbf116ebe795e8351ce96/Question_All_0826.csv");
-        const [corrUrl, setCorrUrl] = useState("https://github.com/PingYangtw/Health-Food-Engineer-Entry/blob/2e123d2ca94719de803cd8766b22256a37630c58/exam_corrections_all_years.csv");
+        const [bankUrl, setBankUrl] = useState("./Question_All_0826.csv");
+        const [corrUrl, setCorrUrl] = useState("./exam_corrections_all_years.csv");
+        const [loadStatus, setLoadStatus] = useState("正在載入 GitHub Pages 題庫…");
+
+        const parseBankRows = (rawRows) => {
+          let skipped = 0;
+          const rows = (rawRows || []).map((raw) => {
+            const base = normalizeKeys(raw);
+            const r = { ...base };
+            r.year = r.year ?? r["年度"] ?? r["年份"] ?? r["\ufeffyear"];
+            r.subject = r.subject ?? r["科目"];
+            r.question_no = r.question_no ?? r["題號"] ?? r["題目編號"] ?? r["no"] ?? r["\ufeffquestion_no"];
+            r.question = r.question ?? r["題目"] ?? r["stem"];
+            r.option_A = r.option_A ?? r["A"] ?? r["選項A"];
+            r.option_B = r.option_B ?? r["B"] ?? r["選項B"];
+            r.option_C = r.option_C ?? r["C"] ?? r["選項C"];
+            r.option_D = r.option_D ?? r["D"] ?? r["選項D"];
+            r.correct_answers = r.correct_answers ?? r["正確答案"] ?? r["answer"];
+            r.notes = r.notes ?? r["備註"];
+            r.date = r.date ?? r["日期"];
+            r.session = r.session ?? r["場次"] ?? r["_場次"] ?? r["session"];
+            const qa = rowToQA(r);
+            if (!qa.year || !qa.subject || !qa.question_no) { skipped += 1; return null; }
+            return qa;
+          }).filter(Boolean);
+          return { rows, skipped };
+        };
+
+        const parseCorrectionRows = (rawRows) => {
+          return (rawRows || []).map((raw) => {
+            const r = normalizeKeys(raw);
+            return {
+              年度: String(pick(r, ["年度", "year"]) ?? ""),
+              場次: String(pick(r, ["場次", "session", "_場次"]) ?? ""),
+              科目: String(pick(r, ["科目", "subject"]) ?? ""),
+              題號: Number(String(pick(r, ["題號", "question_no", "no"]) ?? "").replace(/[^0-9.-]/g, "")),
+              正確答案: String(pick(r, ["正確答案", "correct_answers"]) ?? ""),
+            };
+          }).filter((r) => r.年度 && r.科目 && Number.isFinite(r.題號) && r.正確答案);
+        };
+
+        const fetchCsvRows = async (url) => {
+          const res = await fetch(url, { cache: "no-store" });
+          if (!res.ok) throw new Error(`${url}：HTTP ${res.status}`);
+          const text = await res.text();
+          const parsed = PapaLib.parse(text, { header: true, skipEmptyLines: true });
+          if (parsed.errors?.length && !(parsed.data || []).length) throw new Error(`${url}：CSV 解析失敗`);
+          return parsed.data || [];
+        };
+
+        const loadRepositoryDefaults = async (showAlert = false) => {
+          setLoadStatus("正在載入 GitHub Pages 題庫…");
+          try {
+            const bankRaw = await fetchCsvRows("./Question_All_0826.csv");
+            let corrRaw = [];
+            let corrWarning = "";
+            try {
+              corrRaw = await fetchCsvRows("./exam_corrections_all_years.csv");
+            } catch (corrErr) {
+              console.warn("更正表載入失敗，先使用題庫原始答案", corrErr);
+              corrWarning = "；⚠️ 更正表未載入";
+            }
+            const { rows, skipped } = parseBankRows(bankRaw);
+            const corr = parseCorrectionRows(corrRaw);
+            const corrected = applyCorrectionsToBank(rows, corr);
+            setCorrections(corr);
+            setBank(corrected);
+            setSubject("全部科目");
+            setYear("全部年度");
+            setLoadStatus(`✅ 題庫已載入：${corrected.length} 題；答案更正 ${corr.length} 筆${skipped ? `；略過 ${skipped} 題` : ""}${corrWarning}`);
+            if (showAlert) alert(`✅ 載入完成：${corrected.length} 題，答案更正 ${corr.length} 筆${corrWarning}`);
+          } catch (e) {
+            console.error("自動載入題庫失敗", e);
+            setLoadStatus(`⚠️ 自動載入失敗：${e.message || e}。請確認 index.html、Question_All_0826.csv、exam_corrections_all_years.csv 位於同一個 GitHub 資料夾。`);
+            if (showAlert) alert("自動載入失敗，請確認三個檔案都已上傳到 GitHub repository 根目錄");
+          }
+        };
 
         const runSelfTests = () => {
           try {
@@ -167,8 +249,8 @@
             console.assert(typeof cvs === "string" && /a,b/.test(cvs), "CSV 轉換應成功");
 
             const bank0 = [
-              rowToQA({ year: 114, subject: "食品科學概論", question_no: 33, question: "Q1", option_A: "", option_B: "", option_C: "", option_D: "", correct_answers: "A" }),
-              rowToQA({ year: 113, subject: "保健食品概論", question_no: 22, question: "Q2", option_A: "", option_B: "", option_C: "", option_D: "", correct_answers: "A" }),
+              rowToQA({ year: 114, session: "第一次", subject: "食品科學概論", question_no: 33, question: "Q1", option_A: "", option_B: "", option_C: "", option_D: "", correct_answers: "A" }),
+              rowToQA({ year: 113, session: "第一次", subject: "保健食品概論", question_no: 22, question: "Q2", option_A: "", option_B: "", option_C: "", option_D: "", correct_answers: "A" }),
               rowToQA({ year: 114, subject: "食品科學概論", question_no: 99, question: "Q3", option_A: "", option_B: "", option_C: "", option_D: "", correct_answers: "A" }),
             ];
             const corr = [
@@ -202,6 +284,11 @@
             setYear(saved.year || "全部年度");
             setMode(saved.mode || "practice");
           }
+        }, []);
+
+        useEffect(() => {
+          // GitHub Pages 開啟時直接載入 repository 內的題庫與更正表，不再依賴舊瀏覽器快取。
+          loadRepositoryDefaults(false);
         }, []);
 
         useEffect(() => {
@@ -277,7 +364,7 @@
                   r.option_D = r.option_D ?? r["D"] ?? r["選項D"];
                   r.correct_answers = r.correct_answers ?? r["正確答案"] ?? r["answer"];
                   r.notes = r.notes ?? r["備註"];
-                  r.date = r.date ?? r["日期"]; r.session = r.session ?? r["場次"] ?? r["session"];
+                  r.date = r.date ?? r["日期"]; r.session = r.session ?? r["場次"] ?? r["_場次"] ?? r["session"];
                   const qa = rowToQA(r);
                   if (!qa.year || !qa.subject || !qa.question_no) { skipped += 1; return null; }
                   ok += 1; return qa;
@@ -389,7 +476,7 @@
                   r.correct_answers = r.correct_answers ?? r["正確答案"] ?? r["answer"];
                   r.notes = r.notes ?? r["備註"];
                   r.date = r.date ?? r["日期"];
-                  r.session = r.session ?? r["場次"] ?? r["session"];
+                  r.session = r.session ?? r["場次"] ?? r["_場次"] ?? r["session"];
                   const qa = rowToQA(r);
                   if (!qa.year || !qa.subject || !qa.question_no) { skipped += 1; return null; }
                   ok += 1; return qa;
@@ -420,7 +507,7 @@
                   r.correct_answers = r.correct_answers ?? r["正確答案"] ?? r["answer"];
                   r.notes = r.notes ?? r["備註"];
                   r.date = r.date ?? r["日期"];
-                  r.session = r.session ?? r["場次"] ?? r["session"];
+                  r.session = r.session ?? r["場次"] ?? r["_場次"] ?? r["session"];
                   const qa = rowToQA(r);
                   if (!qa.year || !qa.subject || !qa.question_no) { skipped += 1; return null; }
                   ok += 1; return qa;
@@ -464,15 +551,8 @@
           });
         };
 
-        // 一鍵：載入 GitHub 題庫 + 更正表，並自動套用更正
-        const loadGithubDefaults = () => {
-          const defaultBank = bankUrl || "https://github.com/yokuhei-ping/Health-Food-Engineer-Entry/blob/a78fb8a07dae9892724fbf116ebe795e8351ce96/Question_All_0826.csv";
-          const defaultCorr = corrUrl || "https://github.com/PingYangtw/Health-Food-Engineer-Entry/blob/2e123d2ca94719de803cd8766b22256a37630c58/exam_corrections_all_years.csv";
-          onImportUrl(defaultBank);
-          onImportCorrectionsUrl(defaultCorr);
-          // 等兩個 CSV 下載完成後自動套用更正
-          setTimeout(() => { try { applyCorrections(); } catch (e) {} }, 800);
-        };
+        // 一鍵重新載入 repository 內的題庫 + 更正表
+        const loadGithubDefaults = () => loadRepositoryDefaults(true);
 
         const handleImportChange = (e) => {
           const file = e.target.files?.[0] ?? null;
@@ -521,7 +601,7 @@
 
         const exportAll = () => {
           const rows = bank.map((q) => ({
-            year: q.year, date: q.date, subject: q.subject, question_no: q.question_no, question: q.question,
+            year: q.year, date: q.date, session: q.session, subject: q.subject, question_no: q.question_no, question: q.question,
             option_A: q.option_A, option_B: q.option_B, option_C: q.option_C, option_D: q.option_D,
             correct_answers: q.correct_answers, notes: q.notes,
           }));
@@ -571,6 +651,7 @@
                   <input className="border rounded-xl px-3 py-2" type="file" accept=".csv,.json" onChange={handleImportChange} />
                   <input className="border rounded-xl px-3 py-2 w-64" type="url" placeholder="貼上題庫 CSV/JSON 網址或 gh:別名" value={bankUrl} onChange={(e)=>setBankUrl(e.target.value)} />
                   <button className="rounded-2xl px-4 py-2 border" onClick={()=>onImportUrl(bankUrl)}>從網址載入</button>
+                  <button className="rounded-2xl px-4 py-2 border bg-blue-50" onClick={loadGithubDefaults}>重新載入本站題庫</button>
 
                   <button className="ml-auto rounded-2xl px-4 py-2 bg-gray-900 text-white hover:opacity-90" onClick={start}>開始作答</button>
                   {started && (<button className="rounded-2xl px-4 py-2 border" onClick={stop}>結束/交卷</button>)}
@@ -579,8 +660,10 @@
                   <button className="rounded-xl px-3 py-2 border" onClick={exportWrong}>匯出錯題本 CSV</button>
                   <button className="rounded-xl px-3 py-2 border" onClick={clearBank}>清空題庫</button>
                 </div>
+                <div className="text-sm font-medium">{loadStatus}</div>
                 <div className="text-sm text-gray-600">目前題庫：{filtered.length} 題（符合篩選）／ 全部 {bank.length} 題</div>
-                <div className="text-xs text-gray-500">唯一鍵：年-日期(或場次)-科目-題號（避免不同場次同題號被合併）</div>
+                <div className="text-xs text-gray-500">本站會自動讀取同資料夾的 Question_All_0826.csv 與 exam_corrections_all_years.csv。</div>
+                <div className="text-xs text-gray-500">唯一鍵：年-日期(或場次)-科目-題號（避免不同場次同題號被合併）；答案更正會依「年度＋場次＋科目＋題號」精準套用。</div>
               </section>
 
               {started && current && (
