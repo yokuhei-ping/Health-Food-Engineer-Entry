@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>保健食品初級工程師｜歷屆試題線上練習</title>
+  <title>食品工程師｜歷屆試題線上練習</title>
   <style>
     :root {
       color-scheme: light;
@@ -58,7 +58,7 @@
     }
     .status.ok { background: var(--green-bg); color: var(--green); border-color: #bbf7d0; }
     .status.warn { background: var(--amber-bg); color: var(--amber); border-color: #fde68a; }
-    .controls { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
+    .controls { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 12px; }
     .field { display: grid; gap: 6px; }
     .field label { font-size: 13px; color: var(--muted); }
     select, input[type="number"], input[type="file"] {
@@ -129,14 +129,18 @@
 <body>
   <div class="container">
     <header>
-      <h1>保健食品初級工程師｜歷屆試題線上練習</h1>
-      <p class="subtitle">自動讀取 GitHub Pages 同資料夾題庫｜練習模式・模擬考・答案更正・錯題匯出</p>
+      <h1>食品工程師｜歷屆試題線上練習</h1>
+      <p class="subtitle">保健食品初級工程師＋食品品保初級工程師｜練習模式・模擬考・答案更正・錯題匯出</p>
     </header>
 
     <section class="card">
       <div id="status" class="status">正在啟動網站並載入題庫…</div>
 
       <div class="controls">
+        <div class="field">
+          <label for="examType">考試類別</label>
+          <select id="examType"><option>全部考試類別</option></select>
+        </div>
         <div class="field">
           <label for="subject">科目</label>
           <select id="subject"><option>全部科目</option></select>
@@ -204,13 +208,13 @@
       <div class="empty">題庫載入後，就可以直接選年度、科目開始作答。</div>
     </section>
 
-    <footer>© 保健食品初級工程師｜歷屆試題線上練習</footer>
+    <footer>© 食品工程師｜歷屆試題線上練習</footer>
   </div>
 
   <script>
     "use strict";
 
-    const DEFAULT_BANK_URL = "./Question_All_0826.csv";
+    const DEFAULT_BANK_URL = "./Question_All_Merged.csv";
     const DEFAULT_CORR_URL = "./exam_corrections_all_years.csv";
 
     const state = {
@@ -227,7 +231,7 @@
 
     const $ = (id) => document.getElementById(id);
     const els = {
-      status: $("status"), subject: $("subject"), year: $("year"), mode: $("mode"), limit: $("limit"),
+      status: $("status"), examType: $("examType"), subject: $("subject"), year: $("year"), mode: $("mode"), limit: $("limit"),
       startBtn: $("startBtn"), reloadBtn: $("reloadBtn"), exportWrongBtn: $("exportWrongBtn"),
       bankFile: $("bankFile"), corrFile: $("corrFile"), bankMeta: $("bankMeta"),
       questionCard: $("questionCard"), pills: $("pills"), questionText: $("questionText"), options: $("options"), answerBox: $("answerBox"),
@@ -327,6 +331,7 @@
       const r = normalizeRow(raw);
       const year = String(valueFrom(r, ["year", "年度", "年份"])).trim();
       const date = String(valueFrom(r, ["date", "日期"])).trim();
+      const examType = String(valueFrom(r, ["exam_type", "考試類別", "考試類型"])).trim() || "未分類";
       const session = String(valueFrom(r, ["session", "場次", "_場次"])).trim();
       const subject = String(valueFrom(r, ["subject", "科目"])).trim();
       const questionNo = String(valueFrom(r, ["question_no", "題號", "題目編號", "no", "id"])).trim();
@@ -338,9 +343,9 @@
       const correct = String(valueFrom(r, ["correct_answers", "正確答案", "answer"])).replace(/\s/g, "");
       const notes = String(valueFrom(r, ["notes", "備註"]));
       const salt = date || session || question.slice(0, 30).replace(/\s+/g, "");
-      const id = [year, salt, subject, questionNo].join("-");
+      const id = [examType, year, salt, subject, questionNo].join("-");
       return {
-        id, year, date, session, subject, question_no: questionNo, question,
+        id, year, date, exam_type: examType, session, subject, question_no: questionNo, question,
         option_A: optionA, option_B: optionB, option_C: optionC, option_D: optionD,
         options: [
           { key: "A", text: optionA }, { key: "B", text: optionB },
@@ -364,6 +369,7 @@
       return rawRows.map(raw => {
         const r = normalizeRow(raw);
         return {
+          exam_type: String(valueFrom(r, ["exam_type", "考試類別", "考試類型"])).trim(),
           year: String(valueFrom(r, ["年度", "year"])).trim(),
           session: String(valueFrom(r, ["場次", "session", "_場次"])).trim(),
           subject: String(valueFrom(r, ["科目", "subject"])).trim(),
@@ -375,16 +381,46 @@
     }
 
     function applyCorrections(bank, corrections) {
-      const exact = new Map();
-      const generic = new Map();
-      corrections.forEach(c => {
-        const base = [c.year, c.subject, c.question_no].join("|");
-        if (c.session) exact.set(base + "|" + c.session, c);
-        else generic.set(base, c);
+      const typedExact = new Map();
+      const typedGeneric = new Map();
+      const legacyExact = new Map();
+      const legacyGeneric = new Map();
+      const typesByExact = new Map();
+      const typesByGeneric = new Map();
+
+      bank.forEach(q => {
+        const genericKey = [q.year, q.subject, q.question_no].join("|");
+        const exactKey = genericKey + "|" + q.session;
+        if (!typesByGeneric.has(genericKey)) typesByGeneric.set(genericKey, new Set());
+        if (!typesByExact.has(exactKey)) typesByExact.set(exactKey, new Set());
+        typesByGeneric.get(genericKey).add(q.exam_type);
+        typesByExact.get(exactKey).add(q.exam_type);
       });
+
+      corrections.forEach(c => {
+        const genericKey = [c.year, c.subject, c.question_no].join("|");
+        const exactKey = genericKey + "|" + c.session;
+        if (c.exam_type) {
+          const typedBase = [c.exam_type, c.year, c.subject, c.question_no].join("|");
+          if (c.session) typedExact.set(typedBase + "|" + c.session, c);
+          else typedGeneric.set(typedBase, c);
+        } else {
+          if (c.session) legacyExact.set(exactKey, c);
+          else legacyGeneric.set(genericKey, c);
+        }
+      });
+
       return bank.map(q => {
-        const base = [q.year, q.subject, q.question_no].join("|");
-        const c = exact.get(base + "|" + q.session) || generic.get(base);
+        const typedBase = [q.exam_type, q.year, q.subject, q.question_no].join("|");
+        const genericKey = [q.year, q.subject, q.question_no].join("|");
+        const exactKey = genericKey + "|" + q.session;
+
+        let c = typedExact.get(typedBase + "|" + q.session) || typedGeneric.get(typedBase);
+
+        // 舊版更正表沒有 exam_type 時，只有在該題不會跨考試類別撞號時才套用。
+        if (!c && typesByExact.get(exactKey)?.size === 1) c = legacyExact.get(exactKey);
+        if (!c && typesByGeneric.get(genericKey)?.size === 1) c = legacyGeneric.get(genericKey);
+
         if (!c) return q;
         return { ...q, correct_answers: c.answer, notes: c.notes || q.notes };
       });
@@ -429,7 +465,7 @@
         refreshFilters();
         updateMeta();
         renderAll();
-        setStatus("⚠️ 網站本體已正常啟動，但自動題庫載入失敗。請確認 Question_All_0826.csv 與 index.html 在 GitHub 同一層；你也可以先用下方『手動匯入題庫』繼續使用。錯誤：" + (err.message || err), "warn");
+        setStatus("⚠️ 網站本體已正常啟動，但自動題庫載入失敗。請確認 Question_All_Merged.csv 與 index.html 在 GitHub 同一層；你也可以先用下方『手動匯入題庫』繼續使用。錯誤：" + (err.message || err), "warn");
       }
     }
 
@@ -455,14 +491,19 @@
     }
 
     function refreshFilters() {
-      fillSelect(els.subject, "全部科目", uniqueSorted(state.bank.map(q => q.subject)));
-      fillSelect(els.year, "全部年度", uniqueSorted(state.bank.map(q => q.year), true));
+      fillSelect(els.examType, "全部考試類別", uniqueSorted(state.bank.map(q => q.exam_type)));
+      const examType = els.examType.value;
+      const scoped = state.bank.filter(q => examType === "全部考試類別" || q.exam_type === examType);
+      fillSelect(els.subject, "全部科目", uniqueSorted(scoped.map(q => q.subject)));
+      fillSelect(els.year, "全部年度", uniqueSorted(scoped.map(q => q.year), true));
     }
 
     function filteredBank() {
+      const examType = els.examType.value;
       const subject = els.subject.value;
       const year = els.year.value;
       return state.bank.filter(q =>
+        (examType === "全部考試類別" || q.exam_type === examType) &&
         (subject === "全部科目" || q.subject === subject) &&
         (year === "全部年度" || q.year === year)
       );
@@ -546,6 +587,7 @@
       const q = state.paper[state.page];
       const parts = [
         els.mode.value === "exam" ? "模擬考" : "練習",
+        q.exam_type || "未分類",
         q.subject || "—",
         (q.year || "—") + " 年",
         q.session || q.date || "",
@@ -637,7 +679,7 @@
 
     function updateMeta() {
       const filtered = filteredBank();
-      els.bankMeta.textContent = `目前題庫：${filtered.length} 題（符合篩選）／全部 ${state.bank.length} 題。自動檔名：Question_All_0826.csv；更正表：exam_corrections_all_years.csv`;
+      els.bankMeta.textContent = `目前題庫：${filtered.length} 題（符合篩選）／全部 ${state.bank.length} 題。自動檔名：Question_All_Merged.csv；更正表：exam_corrections_all_years.csv`;
     }
 
     function submitExam() {
@@ -661,7 +703,7 @@
         return;
       }
       const data = rows.map(q => ({
-        year: q.year, date: q.date, _場次: q.session, subject: q.subject, question_no: q.question_no,
+        year: q.year, date: q.date, exam_type: q.exam_type, _場次: q.session, subject: q.subject, question_no: q.question_no,
         question: q.question, option_A: q.option_A, option_B: q.option_B, option_C: q.option_C, option_D: q.option_D,
         correct_answers: q.correct_answers, your_answer: state.answers[q.id] || "", notes: q.notes
       }));
@@ -723,6 +765,7 @@
     els.startBtn.addEventListener("click", startExam);
     els.reloadBtn.addEventListener("click", loadDefaults);
     els.exportWrongBtn.addEventListener("click", exportWrong);
+    els.examType.addEventListener("change", () => { refreshFilters(); updateMeta(); });
     els.subject.addEventListener("change", updateMeta);
     els.year.addEventListener("change", updateMeta);
     els.mode.addEventListener("change", () => {
